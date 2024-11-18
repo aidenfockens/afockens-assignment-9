@@ -79,6 +79,8 @@ def generate_data(n_samples=100):
     y = y.reshape(-1, 1)
     return X, y
 
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
 def update(frame, mlp, ax_input, ax_hidden, ax_gradient, X, y):
     ax_hidden.clear()
     ax_input.clear()
@@ -92,19 +94,26 @@ def update(frame, mlp, ax_input, ax_hidden, ax_gradient, X, y):
     # Hidden layer features
     hidden_features = mlp.a1
 
-    # Plot 3D Hidden Features with Moving Lines
+    # Plot Hidden Space with Fitted Plane
     ax_hidden.scatter(
         hidden_features[:, 0], hidden_features[:, 1], hidden_features[:, 2],
         c=y.ravel(), cmap='bwr', alpha=0.7
     )
-    for i in range(X.shape[0]):
-        ax_hidden.plot(
-            [X[i, 0], hidden_features[i, 0]],
-            [X[i, 1], hidden_features[i, 1]],
-            [0, hidden_features[i, 2]],
-            color='gray', alpha=0.5
-        )
-    ax_hidden.set_title("Hidden Features")
+
+    # Fit a plane to the hidden features
+    if hidden_features.shape[0] >= 3:
+        A = np.c_[hidden_features[:, 0], hidden_features[:, 1], np.ones(hidden_features.shape[0])]
+        coeff, _, _, _ = np.linalg.lstsq(A, hidden_features[:, 2], rcond=None)  # Fit plane
+        x_vals = np.linspace(hidden_features[:, 0].min(), hidden_features[:, 0].max(), 10)
+        y_vals = np.linspace(hidden_features[:, 1].min(), hidden_features[:, 1].max(), 10)
+        X_plane, Y_plane = np.meshgrid(x_vals, y_vals)
+        Z_plane = coeff[0] * X_plane + coeff[1] * Y_plane + coeff[2]
+        ax_hidden.plot_surface(X_plane, Y_plane, Z_plane, alpha=0.3, color='gray')
+
+    ax_hidden.set_title(f"Hidden Space (Step {frame * 10})")
+    ax_hidden.set_xlabel("Hidden Feature 1")
+    ax_hidden.set_ylabel("Hidden Feature 2")
+    ax_hidden.set_zlabel("Hidden Feature 3")
 
     # Decision Boundary in Input Space with Step Number
     xx, yy = np.meshgrid(
@@ -117,22 +126,41 @@ def update(frame, mlp, ax_input, ax_hidden, ax_gradient, X, y):
     ax_input.scatter(X[:, 0], X[:, 1], c=y.ravel(), cmap='bwr', edgecolor='k', alpha=0.7)
     ax_input.set_title(f"Decision Boundary in Input Space (Step {frame * 10})")
 
-    # Update Classification Lines
-    for i in range(mlp.W1.shape[1]):  # Loop over each hidden neuron
-        weight = mlp.W1[:, i]
-        norm = np.linalg.norm(weight)
-        if norm > 0:
-            weight /= norm  # Normalize for consistent visualization
-            ax_input.plot(
-                [0, weight[0]],
-                [0, weight[1]],
-                color='green', alpha=0.5, linestyle='--'
-            )
-    print(f"Step {frame * 10}: W1 mean = {np.mean(mlp.W1)}, W2 mean = {np.mean(mlp.W2)}")
-    # Gradients Visualization
-    grads = np.linalg.norm(mlp.W1, axis=0)
-    ax_gradient.bar(range(len(grads)), grads, color='blue', alpha=0.7)
-    ax_gradient.set_title("Gradient Magnitudes")
+    # Gradient Magnitudes as Nodes and Connections
+    grads = np.linalg.norm(mlp.W1, axis=0)  # Gradients for connections
+    node_positions = list(range(len(grads) + 3))  # Add input nodes (x1, x2) and output node (y)
+    
+    # Scatter nodes
+    ax_gradient.scatter(
+        node_positions, [0] * len(node_positions),
+        c=['blue'] * (len(node_positions) - 1) + ['red'],  # Input/hidden: blue, output: red
+        s=300, alpha=0.8, zorder=3
+    )
+    
+    # Add labels to the nodes
+    labels = ["x1", "x2"] + [f"h{i+1}" for i in range(len(grads))] + ["y"]
+    for i, label in enumerate(labels):
+        ax_gradient.text(
+            node_positions[i], 0.2, label, fontsize=10, ha='center', zorder=5
+        )
+    
+    # Add lines between nodes
+    for i, grad in enumerate(grads):
+        # Input to hidden connections
+        ax_gradient.plot(
+            [0, 2 + i], [0, 0],
+            linewidth=max(0.1, grad * 5), color='gray', alpha=0.7  # Use max to avoid zero linewidth
+        )
+        # Hidden to output connections
+        ax_gradient.plot(
+            [2 + i, len(node_positions) - 1], [0, 0],
+            linewidth=max(0.1, grad * 5), color='gray', alpha=0.7
+        )
+
+    ax_gradient.set_xlim(-1, len(node_positions))
+    ax_gradient.set_ylim(-1, 1)
+    ax_gradient.axis('off')
+    ax_gradient.set_title(f"Gradient Magnitudes with Connections (Step {frame * 10})")
 
 
 
