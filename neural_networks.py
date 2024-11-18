@@ -6,6 +6,7 @@ import os
 from functools import partial
 from matplotlib.patches import Circle
 import uuid
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 result_dir = "results"
 os.makedirs(result_dir, exist_ok=True)
@@ -59,11 +60,16 @@ class MLP:
         dW1 = X.T @ dz1
         db1 = np.sum(dz1, axis=0, keepdims=True)
 
+        print(f"dz2 mean: {np.mean(dz2)}, dW2 mean: {np.mean(dW2)}")
+        print(f"dz1 mean: {np.mean(dz1)}, dW1 mean: {np.mean(dW1)}")
         # Update weights and biases
+        print(f"Before Update: W1 mean = {np.mean(self.W1)}")
         self.W1 -= self.lr * dW1
         self.b1 -= self.lr * db1
         self.W2 -= self.lr * dW2
         self.b2 -= self.lr * db2
+        print(f"After Update: W1 mean = {np.mean(self.W1 - self.lr * dW1)}")
+        print(f"grad_a1 mean: {np.mean(self.grad_a1)}")
 
 def generate_data(n_samples=100):
     np.random.seed(0)
@@ -73,25 +79,34 @@ def generate_data(n_samples=100):
     y = y.reshape(-1, 1)
     return X, y
 
-# Visualization update function
 def update(frame, mlp, ax_input, ax_hidden, ax_gradient, X, y):
     ax_hidden.clear()
     ax_input.clear()
     ax_gradient.clear()
 
-    # perform training steps by calling forward and backward function
+    # Perform training steps (10 per frame)
     for _ in range(10):
-        # Perform a training step
         mlp.forward(X)
         mlp.backward(X, y)
-        
 
+    # Hidden layer features
     hidden_features = mlp.a1
-    ax_hidden.scatter(hidden_features[:, 0], hidden_features[:, 1], hidden_features[:, 2], c=y.ravel(), cmap='bwr', alpha=0.7)
 
+    # Plot 3D Hidden Features with Moving Lines
+    ax_hidden.scatter(
+        hidden_features[:, 0], hidden_features[:, 1], hidden_features[:, 2],
+        c=y.ravel(), cmap='bwr', alpha=0.7
+    )
+    for i in range(X.shape[0]):
+        ax_hidden.plot(
+            [X[i, 0], hidden_features[i, 0]],
+            [X[i, 1], hidden_features[i, 1]],
+            [0, hidden_features[i, 2]],
+            color='gray', alpha=0.5
+        )
     ax_hidden.set_title("Hidden Features")
 
-    # Decision boundary in input space
+    # Decision Boundary in Input Space with Step Number
     xx, yy = np.meshgrid(
         np.linspace(X[:, 0].min() - 1, X[:, 0].max() + 1, 200),
         np.linspace(X[:, 1].min() - 1, X[:, 1].max() + 1, 200)
@@ -100,13 +115,25 @@ def update(frame, mlp, ax_input, ax_hidden, ax_gradient, X, y):
     predictions = mlp.forward(grid).reshape(xx.shape)
     ax_input.contourf(xx, yy, predictions, levels=[0, 0.5, 1], cmap="coolwarm", alpha=0.3)
     ax_input.scatter(X[:, 0], X[:, 1], c=y.ravel(), cmap='bwr', edgecolor='k', alpha=0.7)
-    ax_input.set_title("Decision Boundary in Input Space")
+    ax_input.set_title(f"Decision Boundary in Input Space (Step {frame * 10})")
 
-    # Gradients visualization
-    grads = np.linalg.norm(mlp.W1, axis=1)
-    for i, grad in enumerate(grads):
-        ax_gradient.plot([0, grad], [0, grad], linewidth=grad, color='blue', alpha=0.7)
-    ax_gradient.set_title("Gradient Visualization")
+    # Update Classification Lines
+    for i in range(mlp.W1.shape[1]):  # Loop over each hidden neuron
+        weight = mlp.W1[:, i]
+        norm = np.linalg.norm(weight)
+        if norm > 0:
+            weight /= norm  # Normalize for consistent visualization
+            ax_input.plot(
+                [0, weight[0]],
+                [0, weight[1]],
+                color='green', alpha=0.5, linestyle='--'
+            )
+    print(f"Step {frame * 10}: W1 mean = {np.mean(mlp.W1)}, W2 mean = {np.mean(mlp.W2)}")
+    # Gradients Visualization
+    grads = np.linalg.norm(mlp.W1, axis=0)
+    ax_gradient.bar(range(len(grads)), grads, color='blue', alpha=0.7)
+    ax_gradient.set_title("Gradient Magnitudes")
+
 
 
 def visualize(activation, lr, step_num):
@@ -121,25 +148,25 @@ def visualize(activation, lr, step_num):
     ax_gradient = fig.add_subplot(133)
 
     # Create animation
-    ani = FuncAnimation(fig, partial(update, mlp=mlp, ax_input=ax_input, ax_hidden=ax_hidden, ax_gradient=ax_gradient, X=X, y=y), frames=step_num//10, repeat=False)
+    ani = FuncAnimation(
+        fig,
+        partial(update, mlp=mlp, ax_input=ax_input, ax_hidden=ax_hidden, ax_gradient=ax_gradient, X=X, y=y),
+        frames=step_num // 10,
+        repeat=True
+    )
 
-
-
+    # Generate a unique filename for the GIF
     new_filename = f"visualize_{uuid.uuid4().hex}.gif"
     new_filepath = os.path.join(result_dir, new_filename)
+
     # Save the animation as a GIF
     ani.save(new_filepath, writer='pillow', fps=10)
-    plt.close()
 
-    # Remove old gifs in the result directory
+    # Clean up old files
     for file in os.listdir(result_dir):
         if file != new_filename and file.endswith(".gif"):
             os.remove(os.path.join(result_dir, file))
+
     plt.close()
     return new_filename
 
-#if __name__ == "__main__":
-#    activation = "tanh"
-#    lr = 0.1
-#    step_num = 1000
-#    visualize(activation, lr, step_num)
